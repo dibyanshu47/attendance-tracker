@@ -219,7 +219,10 @@ type IsoTimestamp = string; // full ISO 8601
 interface Student  { id: StudentId; name: string; active: boolean; addedAt: IsoTimestamp; }
 interface ClassInfo { classId: ClassId; name: string; createdAt: IsoTimestamp; memberIds: StudentId[]; }
 interface Session  { present: StudentId[]; absent: StudentId[]; markedAt: IsoTimestamp; }
-interface MonthBucket {
+
+// INTERNAL to GoogleDriveStore — the on-disk session file (envelope + payload).
+// schemaVersion is used for migration-on-read and never crosses the interface.
+interface StoredMonthFile {
   schemaVersion: number;
   classId: ClassId;
   month: Month;
@@ -250,20 +253,23 @@ interface AttendanceStore {
   // membership (many-to-many)
   setMembership(classId: ClassId, studentIds: StudentId[]): Promise<void>;
 
-  // sessions (month-bucketing is internal)
+  // sessions (month-bucketing is internal; callers never see the file envelope)
   markSession(
     classId: ClassId,
     date: IsoDate,
     marks: { present: StudentId[]; absent: StudentId[] },
   ): Promise<void>;
-  getMonth(classId: ClassId, month: Month): Promise<MonthBucket | null>; // null = no file yet
-  getRange(classId: ClassId, from: IsoDate, to: IsoDate): Promise<MonthBucket[]>;
+  // date→session map for one month, or null if no file exists yet
+  getMonth(classId: ClassId, month: Month): Promise<Record<IsoDate, Session> | null>;
+  // merged date→session map across the span (date keys are globally unique, so
+  // merging is lossless); empty object if nothing is recorded in the range
+  getRange(classId: ClassId, from: IsoDate, to: IsoDate): Promise<Record<IsoDate, Session>>;
 }
 ```
 
 **Behavioral contract (implementation must honor):**
-- `markSession` resolves `date → month`, loads (or creates) that bucket, overwrites the date's `Session`, bumps `markedAt`, and writes with `If-Match` on the file etag. A 412 surfaces as `StoreConflictError`.
+- `markSession` resolves `date → month`, loads (or creates) that month's `StoredMonthFile`, overwrites the date's `Session`, bumps `markedAt`, and writes with `If-Match` on the file etag. A 412 surfaces as `StoreConflictError`.
 - A 401 is handled internally by one silent `requestAccessToken({ prompt: '' })` + retry; only a *failed* re-grant throws `StoreAuthError`.
-- `getMonth` returns `null` (not an error) when the bucket file does not exist.
-- `getRange` enumerates every month from `from` to `to` inclusive, fetches each bucket (skipping nulls), and returns them in chronological order. Views filter to the exact day range; partial start/end months are expected.
+- `getMonth` returns `null` (not an error) when the month file does not exist; otherwise just its `sessions` map (the `StoredMonthFile` envelope is stripped, and migration-on-read has already normalized the shape).
+- `getRange` enumerates every month from `from` to `to` inclusive, fetches each file (skipping missing ones), and returns a single merged `date→session` map. Views filter to the exact day range; partial start/end months are expected.
 - All mutating dimension ops (`addStudent` before membership) follow the §7 write-order rule to avoid dangling ids.
