@@ -273,3 +273,56 @@ interface AttendanceStore {
 - `getMonth` returns `null` (not an error) when the month file does not exist; otherwise just its `sessions` map (the `StoredMonthFile` envelope is stripped, and migration-on-read has already normalized the shape).
 - `getRange` enumerates every month from `from` to `to` inclusive, fetches each file (skipping missing ones), and returns a single merged `date→session` map. Views filter to the exact day range; partial start/end months are expected.
 - All mutating dimension ops (`addStudent` before membership) follow the §7 write-order rule to avoid dangling ids.
+
+## 11. Screens & flows
+
+### 11.1 Navigation map
+
+```
+/login ──(Sign In With Google)──► /            (ClassList)
+                                    │
+                        ┌───────────┴───────────┐
+                  (create class)          (select class)
+                        │                         │
+                        ▼                         ▼
+                   Drive consent           /class/:id        (ClassHome — hub)
+                   (first write)                 │
+                                   ┌─────────────┼──────────────┐
+                                   ▼             ▼              ▼
+                        /class/:id/attendance  /class/:id/roster  /class/:id/reports
+                        (MarkAttendance)       (Roster)           (Reports)
+```
+
+An app shell wraps all signed-in routes: shows the teacher's name/avatar (from the ID token) and a logout action (revokes the token). `/login` is the only unauthenticated route; a missing/expired identity redirects there.
+
+### 11.2 Screens
+
+| Screen | Route | Purpose | Store calls |
+|---|---|---|---|
+| **Login** | `/login` | Identity only. Renders the GIS button; on ID token → go to ClassList. No Drive scope requested yet. | none (GIS `id.initialize`) |
+| **ClassList** | `/` | List the teacher's classes; create a new one. First class creation triggers the Drive consent (incremental auth). | `listClasses()`, `createClass(name)` |
+| **ClassHome** | `/class/:id` | Hub for one class. Primary CTA **Take attendance** (today), plus **Reports** and **Manage students**. | `listClasses()` (for name/members) |
+| **Roster** | `/class/:id/roster` | Add new students (creates in the teacher directory + enrolls) and enroll/unenroll existing students (many-to-many). | `listStudents()`, `addStudent(name)`, `setMembership(id, ids)` |
+| **MarkAttendance** | `/class/:id/attendance?date=YYYY-MM-DD` | The daily flow. Defaults to today. Shows enrolled, active students; toggle present/absent; save. Date picker/calendar to mark a past day. | `listStudents()`, `getMonth(id, month)`, `markSession(id, date, marks)` |
+| **Reports** | `/class/:id/reports` | Daily / weekly / monthly views and per-student rate. Calendar to pick period; selecting a month loads that bucket once, then day clicks are in-memory. | `getMonth(id, month)`, `getRange(id, from, to)`, `listStudents()` |
+
+Student names are resolved from ids via `listStudents()`; load it once into app context and reuse across screens rather than refetching per screen.
+
+### 11.3 Primary daily flow (the fast path)
+
+This is the interaction to optimize — minimize clicks from open to saved:
+
+```
+Open app ─► (already signed in) ─► ClassList ─► tap class ─► "Take attendance"
+        ─► MarkAttendance (today, roster prefilled) ─► toggle absentees ─► Save
+```
+
+- Default every enrolled active student to **present**; the teacher only taps the absentees, then Save. For most classes that's a handful of taps.
+- "Take attendance" jumps straight to `MarkAttendance` with `date=today` — no intermediate date prompt on the common path.
+- Save calls `markSession`; disable the Save button while the write is in flight (the concurrency guard from §7). On `StoreConflictError`, re-read the month and reapply.
+
+### 11.4 Auth / consent timing in the flow
+
+- **Login** uses only `google.accounts.id` → ID token. No Drive scope, so the sign-in is frictionless and shows no scary consent.
+- The **Drive access token** (`drive.appdata`) is requested on the **first action that writes** — creating the first class. Tying the consent to a visible action lifts approval rates.
+- After first consent, tokens are re-acquired silently on reload/expiry; the teacher sees no further prompts unless they revoke access.
