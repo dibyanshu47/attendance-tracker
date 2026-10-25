@@ -37,7 +37,9 @@ No server tier. The browser talks directly to Google APIs with a short-lived acc
 ```
 Teacher ──► SPA (browser)
               │  1. Sign In With Google  → ID token (identity: sub, name, email)
-              │  2. On first write action → OAuth access token (scope: drive.appdata)
+              │  2. Drive access token (scope: drive.appdata):
+              │       • brand-new teacher → interactive consent on first class creation
+              │       • returning teacher → acquired silently on app load (prompt: '')
               │
               ├──► Drive API: read/write dimension + session files
               │
@@ -45,7 +47,7 @@ Teacher ──► SPA (browser)
 ```
 
 - Identity (`sub`) is the stable teacher key; Drive scoping isolates one teacher's data from another's.
-- Access token re-acquired silently on reload/expiry; never persisted.
+- Access token re-acquired silently on reload/expiry; never persisted. Reads (e.g. `listClasses`) require a token, so a returning teacher's token is obtained silently on load *before* the first read; only a brand-new teacher — who has no data yet — defers to the interactive consent triggered by creating the first class.
 
 ### 3.3 Storage abstraction (key architectural decision)
 
@@ -56,7 +58,7 @@ Conceptual surface:
 - `listStudents()` / `addStudent(name)` / `renameStudent(id, name)` / `deactivateStudent(id)`
 - `setMembership(classId, studentIds[])` — enroll/unenroll (many-to-many)
 - `markSession(classId, date, {present[], absent[]})` — resolves date → month bucket internally
-- `getMonth(classId, "YYYY-MM")` / `getRange(classId, from, to)` — fetches the 1–N buckets a range spans
+- `getMonth(classId, "YYYY-MM")` — one month's `date→session` map; `getRange(classId, from, to)` — a single merged `date→session` map across the months the range spans
 
 Views are pure functions over data returned by the store; they are not part of it.
 
@@ -92,6 +94,8 @@ appDataFolder/
 ├── classes.json                       # dimension: class metadata + membership
 └── sessions-{classId}-{YYYY-MM}.json  # fact: one month of marks for one class
 ```
+
+> Terminology: a **month bucket** = one `sessions-{classId}-{YYYY-MM}.json` file. "Bucket," "month file," and `StoredMonthFile` (§10) all refer to this same unit.
 
 Rationale:
 - Dimension files change rarely (new student, new class, membership edit), so rewriting them whole is cheap.
@@ -148,7 +152,7 @@ Computed client-side from loaded files:
 - **Daily** — one date's present/absent roster for a class (one month bucket).
 - **Weekly** — a 7-day range; 1–2 month buckets.
 - **Monthly** — one bucket; maps 1:1 onto a single session file.
-- **Per-student rate over a range** = (sessions present) / (dates the class met while the student was active), where "dates the class met" = dates present as keys across the relevant buckets.
+- **Per-student rate over a range** = (dates the student is in `present`) / (dates the student is in `present ∪ absent`, i.e. was actually marked). This needs no "active window": a student simply isn't in either list on dates they weren't around, so mid-term joiners and leavers are handled automatically. (The class-level "days the class met" = dates present as keys across the range; the per-student denominator is the subset of those where the student was marked.)
 
 No redundant Drive calls; the store fetches only the buckets a range spans, and aggregation is instant at this data size.
 
@@ -229,6 +233,12 @@ interface StoredMonthFile {
   sessions: Record<IsoDate, Session>;
 }
 
+// INTERNAL to GoogleDriveStore — on-disk dimension files (envelope + payload).
+// Like StoredMonthFile, schemaVersion drives migration-on-read and never crosses
+// the interface; elements reuse the Student / ClassInfo domain types above.
+interface StoredStudentsFile { schemaVersion: number; students: Student[]; }
+interface StoredClassesFile  { schemaVersion: number; classes: ClassInfo[]; }
+
 // --- error contract ---
 // Thrown when the month file changed underneath a write (HTTP 412 via If-Match).
 // Caller should re-read the bucket, re-apply, and retry.
@@ -308,6 +318,8 @@ An app shell wraps all signed-in routes: shows the teacher's name/avatar (from t
 
 Student names are resolved from ids via `listStudents()`; load it once into app context and reuse across screens rather than refetching per screen.
 
+On load, a returning teacher's Drive token is acquired silently *before* `listClasses()` runs, so their classes render with no prompt. A brand-new teacher has no token and no data yet: ClassList shows a "create your first class" empty state that performs **no Drive read** until the create action triggers the first interactive consent.
+
 ### 11.3 Primary daily flow (the fast path)
 
 This is the interaction to optimize — minimize clicks from open to saved:
@@ -324,8 +336,9 @@ Open app ─► (already signed in) ─► ClassList ─► tap class ─► "Ta
 ### 11.4 Auth / consent timing in the flow
 
 - **Login** uses only `google.accounts.id` → ID token. No Drive scope, so the sign-in is frictionless and shows no scary consent.
-- The **Drive access token** (`drive.appdata`) is requested on the **first action that writes** — creating the first class. Tying the consent to a visible action lifts approval rates.
-- After first consent, tokens are re-acquired silently on reload/expiry; the teacher sees no further prompts unless they revoke access.
+- **First-ever consent (brand-new teacher):** the interactive Drive consent (`drive.appdata`) is requested on the first action that writes — creating the first class. There is no data to read yet, so nothing needs a token before that; tying consent to a visible action lifts approval rates.
+- **Returning teacher:** already consented, so the token is acquired **silently on app load** (`requestAccessToken({ prompt: '' })`) before the first read (`listClasses`). No prompt unless they revoked access.
+- Tokens are re-acquired silently on reload/expiry thereafter; never persisted.
 
 ## 12. Google Cloud setup checklist
 
