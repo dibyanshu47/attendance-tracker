@@ -193,3 +193,132 @@ body {
   justify-content: center;
   margin-top: 1rem;
 }
+
+/* --- present/absent toggle --- */
+.pa-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.pa-btn {
+  border: 0;
+  padding: 0.4rem 0.8rem;
+  background: var(--panel);
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.pa-btn:disabled {
+  cursor: not-allowed;
+}
+
+.pa-present {
+  background: #16a34a;
+  color: #fff;
+}
+
+.pa-absent {
+  background: var(--danger);
+  color: #fff;
+}
+
+/* --- roster / mark lists --- */
+.roster-list,
+.mark-list,
+.name-list {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0;
+}
+
+.roster-row {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.roster-label {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  cursor: pointer;
+}
+
+.mark-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.mark-name {
+  font-weight: 500;
+}
+
+.date-field {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.date-input {
+  margin-left: 0.3rem;
+}
+
+/* --- tabs & tables (reports) --- */
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin: 1rem 0;
+}
+
+.tab {
+  padding: 0.45rem 0.9rem;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  border-radius: var(--radius);
+}
+
+.tab-active {
+  background: var(--primary);
+  color: var(--primary-text);
+  border-color: var(--primary);
+}
+
+.period {
+  margin-bottom: 1rem;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.5rem 0 1.5rem;
+}
+
+.table th,
+.table td {
+  text-align: left;
+  padding: 0.45rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.table th {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.day-view {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.name-list li {
+  padding: 0.25rem 0;
+}

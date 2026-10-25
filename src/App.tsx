@@ -9,6 +9,9 @@ import { Centered } from './components/Centered';
 import { Login } from './screens/Login';
 import { ClassList } from './screens/ClassList';
 import { ClassHome } from './screens/ClassHome';
+import { Roster } from './screens/Roster';
+import { MarkAttendance } from './screens/MarkAttendance';
+import { Reports } from './screens/Reports';
 
 export default function App(): JSX.Element {
   // Resolve config once; a missing client ID renders a clear screen (below)
@@ -75,6 +78,9 @@ export default function App(): JSX.Element {
         >
           <Route path="/" element={<ClassList />} />
           <Route path="/class/:id" element={<ClassHome />} />
+          <Route path="/class/:id/roster" element={<Roster />} />
+          <Route path="/class/:id/attendance" element={<MarkAttendance />} />
+          <Route path="/class/:id/reports" element={<Reports />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
