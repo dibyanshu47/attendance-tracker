@@ -326,3 +326,51 @@ Open app ─► (already signed in) ─► ClassList ─► tap class ─► "Ta
 - **Login** uses only `google.accounts.id` → ID token. No Drive scope, so the sign-in is frictionless and shows no scary consent.
 - The **Drive access token** (`drive.appdata`) is requested on the **first action that writes** — creating the first class. Tying the consent to a visible action lifts approval rates.
 - After first consent, tokens are re-acquired silently on reload/expiry; the teacher sees no further prompts unless they revoke access.
+
+## 12. Google Cloud setup checklist
+
+Human prerequisites in the [Google Cloud Console](https://console.cloud.google.com/). These are one-time config the code cannot do for itself; the code is written against the resulting **client ID** and scopes. Do this before running the app locally.
+
+### 12.1 Steps
+
+1. **Create a project** (or reuse one). Note the project name.
+2. **Enable the Google Drive API** — APIs & Services → Library → "Google Drive API" → Enable. (This is what makes `appDataFolder` calls work.)
+3. **Configure the OAuth consent screen** — APIs & Services → OAuth consent screen:
+   - User type: **External**.
+   - App name, user support email, developer contact email.
+   - **Scopes** — add exactly these, no more:
+     - `openid`
+     - `.../auth/userinfo.email`
+     - `.../auth/userinfo.profile`
+     - `https://www.googleapis.com/auth/drive.appdata`
+   - All four are **non-sensitive**, so no paid security assessment and no restricted-scope review. (Scopes are occasionally reclassified — confirm against current Google OAuth docs before shipping.)
+4. **Publishing status**:
+   - Keep **Testing** while developing; add your own Google account under **Test users**.
+   - Flip to **In production** before sharing with a real teacher, so they don't see the "unverified app" warning. With only non-sensitive scopes this does not require the heavy verification/CASA process (basic brand/app info only).
+5. **Create credentials** — APIs & Services → Credentials → Create credentials → **OAuth client ID**:
+   - Application type: **Web application**.
+   - **Authorized JavaScript origins** — add both, matched exactly (scheme + host + port, no trailing slash, no path):
+     - `http://localhost:5173` (Vite dev default — adjust if your port differs)
+     - your production origin, e.g. `https://dibyanshu47.github.io`
+   - **No client secret is used** — this is a browser app. Ignore the secret; never ship it.
+   - Copy the generated **Client ID** (`…apps.googleusercontent.com`).
+
+### 12.2 What the code consumes
+
+| Setup output | How the code uses it |
+|---|---|
+| **Client ID** | `VITE_GOOGLE_CLIENT_ID` in `.env.local` (gitignored). Passed to both `google.accounts.id.initialize` (login) and `initTokenClient` (Drive access). |
+| **Scope** `drive.appdata` | Passed to `initTokenClient({ scope })`, requested on first class creation. |
+| **Authorized origin** | Must match the URL the app is served from, or GIS rejects the request with an origin error. |
+| GIS client library | Loaded via `<script src="https://accounts.google.com/gsi/client" async defer>` in `index.html`. |
+
+`.env.local` (never committed — already covered by `.gitignore`):
+```
+VITE_GOOGLE_CLIENT_ID=xxxxxxxx.apps.googleusercontent.com
+```
+
+### 12.3 Common setup pitfalls
+
+- **Origin mismatch** is the #1 failure: `http://localhost:5173` ≠ `http://localhost:3000` ≠ `http://127.0.0.1:5173`. Add every origin you actually serve from.
+- **Drive API not enabled** → `appDataFolder` calls 403 even with a valid token. Step 2 is mandatory.
+- **Still in Testing with a non-test-user account** → consent blocked. Add the account as a test user or publish to production.
