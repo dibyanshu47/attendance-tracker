@@ -5,3 +5,9 @@ dist/
 build/
 .DS_Store
 *.log
+
+# IDE
+.idea/
+
+# TS incremental build info
+*.tsbuildinfo
