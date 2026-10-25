@@ -25,7 +25,7 @@ A browser-only web app that lets an independent teacher track class attendance, 
 
 | Component | Responsibility | Hosting / Cost |
 |---|---|---|
-| Static SPA (React/Svelte/vanilla) | All UI, logic, aggregation | Static host (GitHub/Cloudflare Pages) — free |
+| Static SPA (React + Vite + TypeScript) | All UI, logic, aggregation | Static host (GitHub/Cloudflare Pages) — free |
 | Google Identity Services (GIS) | Authentication (ID token) + authorization (access token) | Google — free |
 | Google Drive API (`appDataFolder`) | Persistent JSON storage | User's Drive — free |
 | Storage adapter (in-app) | Abstracts all persistence behind one interface | n/a |
@@ -175,3 +175,95 @@ No redundant Drive calls; the store fetches only the buckets a range spans, and 
 - Add `ServerStore` behind the same `AttendanceStore` interface: small API + managed DB (Firestore free tier as pragmatic first choice).
 - Introduces roles (admin/teacher), shared class data, and makes us the data custodian — accepted trade-off at that stage.
 - SPA, data model, and views remain unchanged; only the store implementation swaps. The dimension/fact split maps cleanly onto relational tables (`students`, `classes`, `class_members`, `sessions`).
+
+## 9. Tech stack
+
+| Concern | Choice | Notes |
+|---|---|---|
+| Language | **TypeScript** (strict) | Data model is all cross-file id references; types are the spec and catch id-swap bugs |
+| UI framework | **React 18** | Chosen for ecosystem + existing familiarity; app is small/state-light so no SSR needed |
+| Build / dev server | **Vite** | Static build out of the box; fast HMR |
+| Routing | **React Router** (or minimal hash routing) | Few screens; keep it light |
+| State | React built-ins (`useState`/`useReducer` + context) | No Redux/Zustand needed at this size; load-mutate-render |
+| Data fetching | Direct `fetch` inside the store layer | No React Query needed; store owns all Drive I/O |
+| Styling | CSS Modules (default) | Zero-dependency; Tailwind is an acceptable swap if preferred |
+| Google auth | Google Identity Services (GIS) via `<script>` | ID token for login, token client for Drive access |
+| Hosting | GitHub Pages or Cloudflare Pages | Static; no SSR |
+
+**Suggested project structure**
+```
+src/
+├── auth/          # GIS wrappers: sign-in, token client, silent re-grant
+├── store/         # AttendanceStore interface + GoogleDriveStore impl + types
+├── views/         # pure aggregation fns (daily/weekly/monthly, rate)
+├── screens/       # Login, ClassList, Roster, MarkAttendance, Reports
+├── components/    # shared UI (tables, calendar, present/absent toggles)
+└── main.tsx
+```
+
+The `store/` boundary is the one that matters: nothing outside it imports Drive URLs or GIS tokens. Swapping in a future `ServerStore` touches only this folder.
+
+## 10. Storage interface (typed)
+
+This is the contract the UI codes against. `GoogleDriveStore` implements it; file layout and month-bucketing stay internal to the implementation.
+
+```ts
+// --- domain aliases ---
+type StudentId    = string;
+type ClassId      = string;
+type IsoDate      = string; // "YYYY-MM-DD"  (a calendar day)
+type Month        = string; // "YYYY-MM"     (a bucket key)
+type IsoTimestamp = string; // full ISO 8601
+
+// --- entities (mirror the on-disk shapes in §4.3) ---
+interface Student  { id: StudentId; name: string; active: boolean; addedAt: IsoTimestamp; }
+interface ClassInfo { classId: ClassId; name: string; createdAt: IsoTimestamp; memberIds: StudentId[]; }
+interface Session  { present: StudentId[]; absent: StudentId[]; markedAt: IsoTimestamp; }
+interface MonthBucket {
+  schemaVersion: number;
+  classId: ClassId;
+  month: Month;
+  sessions: Record<IsoDate, Session>;
+}
+
+// --- error contract ---
+// Thrown when the month file changed underneath a write (HTTP 412 via If-Match).
+// Caller should re-read the bucket, re-apply, and retry.
+class StoreConflictError extends Error {}
+// Thrown only when silent token re-grant fails (HTTP 401 unrecoverable).
+// Caller must trigger interactive re-auth.
+class StoreAuthError extends Error {}
+
+interface AttendanceStore {
+  // classes
+  listClasses(): Promise<ClassInfo[]>;
+  createClass(name: string): Promise<ClassInfo>;
+  renameClass(classId: ClassId, name: string): Promise<void>;
+  deleteClass(classId: ClassId): Promise<void>;
+
+  // students (teacher-wide directory, shared across classes)
+  listStudents(): Promise<Student[]>;
+  addStudent(name: string): Promise<Student>;
+  renameStudent(studentId: StudentId, name: string): Promise<void>;
+  deactivateStudent(studentId: StudentId): Promise<void>; // soft delete
+
+  // membership (many-to-many)
+  setMembership(classId: ClassId, studentIds: StudentId[]): Promise<void>;
+
+  // sessions (month-bucketing is internal)
+  markSession(
+    classId: ClassId,
+    date: IsoDate,
+    marks: { present: StudentId[]; absent: StudentId[] },
+  ): Promise<void>;
+  getMonth(classId: ClassId, month: Month): Promise<MonthBucket | null>; // null = no file yet
+  getRange(classId: ClassId, from: IsoDate, to: IsoDate): Promise<MonthBucket[]>;
+}
+```
+
+**Behavioral contract (implementation must honor):**
+- `markSession` resolves `date → month`, loads (or creates) that bucket, overwrites the date's `Session`, bumps `markedAt`, and writes with `If-Match` on the file etag. A 412 surfaces as `StoreConflictError`.
+- A 401 is handled internally by one silent `requestAccessToken({ prompt: '' })` + retry; only a *failed* re-grant throws `StoreAuthError`.
+- `getMonth` returns `null` (not an error) when the bucket file does not exist.
+- `getRange` enumerates every month from `from` to `to` inclusive, fetches each bucket (skipping nulls), and returns them in chronological order. Views filter to the exact day range; partial start/end months are expected.
+- All mutating dimension ops (`addStudent` before membership) follow the §7 write-order rule to avoid dangling ids.
