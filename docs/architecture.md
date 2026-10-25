@@ -163,8 +163,8 @@ No redundant Drive calls; the store fetches only the buckets a range spans, and 
 
 | Area | Decision | Status |
 |---|---|---|
-| Session granularity | One session per class per date; editable later (re-mark overwrites, `markedAt` updates) | **Default applied** — confirm |
-| View denominator | Rate counts only dates with a recorded session (days the class actually met) | **Default applied** — confirm |
+| Session granularity | One session per class per date; editable later (re-mark overwrites, `markedAt` updates) | **Confirmed** |
+| View denominator | Rate counts only dates with a recorded session (days the class actually met) | **Confirmed** |
 | Concurrent writes | Disable submit during write; add etag/`If-Match` optimistic concurrency on the month file | To implement |
 | Cross-file consistency | No transactions across files; write `students.json` before membership, treat membership ids with no student as soft-ignored orphans | Accepted for single-teacher |
 | Data invisibility | `appDataFolder` not visible to teacher | Mitigate via export; or switch to `drive.file` |
