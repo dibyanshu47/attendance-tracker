@@ -16,3 +16,5 @@ export type {
 export type { AttendanceStore } from './AttendanceStore';
 
 export { StoreConflictError, StoreAuthError } from './errors';
+
+export { GoogleDriveStore } from './GoogleDriveStore';
