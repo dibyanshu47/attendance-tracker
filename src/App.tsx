@@ -70,8 +70,12 @@ export default function App(): JSX.Element {
     );
   }
 
+  // Serve under the Vite base path (e.g. "/attendance-tracker" on GitHub Pages
+  // project sites, "/" in dev). Trailing slash stripped for React Router.
+  const basename = import.meta.env.BASE_URL.replace(/\/+$/, '') || '/';
+
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={basename}>
       <Routes>
         <Route
           path="/login"
