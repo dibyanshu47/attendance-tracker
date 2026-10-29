@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
-import { GisDriveTokenProvider, initGoogleLogin, waitForGis, type GoogleIdentity } from './auth';
+import { GisDriveTokenProvider, initGoogleLogin, waitForGis, loadIdentity, saveIdentity, clearIdentity, type GoogleIdentity } from './auth';
 import { GoogleDriveStore, type AttendanceStore } from './store';
 import { getGoogleClientId } from './app/config';
 import { AppProvider } from './app/AppContext';
@@ -28,7 +28,9 @@ export default function App(): JSX.Element {
   const [tokens] = useState<GisDriveTokenProvider>(() => new GisDriveTokenProvider(config.clientId));
   const [store] = useState<AttendanceStore>(() => new GoogleDriveStore(tokens));
 
-  const [identity, setIdentity] = useState<GoogleIdentity | null>(null);
+  // Restore the signed-in profile across refreshes (sessionStorage); the Drive
+  // token itself is never persisted and is re-acquired silently on load (§6).
+  const [identity, setIdentity] = useState<GoogleIdentity | null>(() => loadIdentity());
   const [gisReady, setGisReady] = useState(false);
   const [gisError, setGisError] = useState<string | null>(null);
 
@@ -38,7 +40,13 @@ export default function App(): JSX.Element {
     waitForGis()
       .then(() => {
         if (cancelled) return;
-        initGoogleLogin({ clientId: config.clientId, onIdentity: (id) => setIdentity(id) });
+        initGoogleLogin({
+          clientId: config.clientId,
+          onIdentity: (id) => {
+            saveIdentity(id);
+            setIdentity(id);
+          },
+        });
         setGisReady(true);
       })
       .catch((err: unknown) => {
@@ -49,7 +57,10 @@ export default function App(): JSX.Element {
     };
   }, [config]);
 
-  const handleLogout = useCallback(() => setIdentity(null), []);
+  const handleLogout = useCallback(() => {
+    clearIdentity();
+    setIdentity(null);
+  }, []);
 
   if (config.error) {
     return (

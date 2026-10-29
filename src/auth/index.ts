@@ -8,3 +8,5 @@ export { initGoogleLogin, renderGoogleButton, disableAutoSelect, decodeIdToken }
 export { GisDriveTokenProvider, DRIVE_APPDATA_SCOPE } from './driveToken';
 
 export { isGisReady, waitForGis } from './gisLoader';
+
+export { saveIdentity, loadIdentity, clearIdentity } from './session';

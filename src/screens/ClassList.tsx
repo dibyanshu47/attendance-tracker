@@ -76,7 +76,7 @@ export function ClassList(): JSX.Element {
         <h1>Your classes</h1>
       </div>
 
-      {status === 'loading' ? <Centered title="Loading your classes…" /> : null}
+      {status === 'loading' ? <p className="muted">Checking your classes…</p> : null}
       {status === 'error' && error ? <p className="error">{error}</p> : null}
 
       {status === 'ready' && classes.length > 0 ? (
@@ -103,22 +103,20 @@ export function ClassList(): JSX.Element {
         </Centered>
       ) : null}
 
-      {status !== 'loading' ? (
-        <form className="create-form" onSubmit={handleCreate}>
-          <input
-            className="input"
-            type="text"
-            placeholder="New class name (e.g. Karate - Tue/Thu 6pm)"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            disabled={busy}
-            aria-label="New class name"
-          />
-          <button className="btn btn-primary" type="submit" disabled={busy || !name.trim()}>
-            {busy ? 'Creating…' : 'Create class'}
-          </button>
-        </form>
-      ) : null}
+      <form className="create-form" onSubmit={handleCreate}>
+        <input
+          className="input"
+          type="text"
+          placeholder="New class name (e.g. Karate - Tue/Thu 6pm)"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          disabled={busy}
+          aria-label="New class name"
+        />
+        <button className="btn btn-primary" type="submit" disabled={busy || !name.trim()}>
+          {busy ? 'Creating…' : 'Create class'}
+        </button>
+      </form>
     </section>
   );
 }
