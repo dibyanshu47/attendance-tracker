@@ -103,12 +103,21 @@ export class DriveClient {
    * as StoreConflictError.
    */
   async updateJsonFile(id: string, content: string, ifMatchEtag?: string | null): Promise<void> {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    // Drive's content update is semantically an HTTP PATCH, but Chrome's CORS
+    // preflight for PATCH on the upload endpoint is unreliable — it can return
+    // an Access-Control-Allow-Methods list without PATCH (and the preflight
+    // cache, which a hard reload does not clear, then pins that failure). POST
+    // with X-HTTP-Method-Override: PATCH uses a method the preflight always
+    // allows; Drive applies it as the same update.
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'X-HTTP-Method-Override': 'PATCH',
+    };
     if (ifMatchEtag) headers['If-Match'] = ifMatchEtag;
 
     const res = await this.authFetch(
       `${DRIVE_UPLOAD}/files/${encodeURIComponent(id)}?uploadType=media`,
-      { method: 'PATCH', headers, body: content },
+      { method: 'POST', headers, body: content },
     );
     if (res.status === 412) throw new StoreConflictError();
     if (!res.ok) throw await driveError('update file', res);
